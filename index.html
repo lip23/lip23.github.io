@@ -229,6 +229,290 @@
   
   
   <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/12/22/lab1-系统启动/">
+
+    <span hidden itemprop="author" itemscope="" itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="lip">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope="" itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="lip">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/12/22/lab1-系统启动/" itemprop="url">lab1:系统启动</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-12-22T09:13:28+08:00">
+                2018-12-22
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <p>系统启动的流程是BIOS–&gt;bootloader–&gt;kernel</p>
+<h2 id="BIOS"><a href="#BIOS" class="headerlink" title="BIOS"></a>BIOS</h2><p>BIOS是基本输入输出系统，系统在通电后会将bios程序加载到内存0xf0000~0x100000处，并运行。bios程序的主要功能是：</p>
+<ul>
+<li>硬件init&amp;check</li>
+<li>从硬盘的主引导扇区(即硬盘第一个sector)加载bootloader，并运行。</li>
+</ul>
+<h2 id="bootloader"><a href="#bootloader" class="headerlink" title="bootloader"></a>bootloader</h2><p>bootloader是引导程序，bios将其加载到内存0x7c00处。起主要功能是:  </p>
+<ul>
+<li>实模式–&gt;保护模式</li>
+<li>将kernel加载到内存并运行</li>
+</ul>
+<h3 id="实模式"><a href="#实模式" class="headerlink" title="实模式"></a>实模式</h3><p>最早期的系统只有实模式，在该模式下段寄存器(cs, ds, es, ss), 程序可以访问地址空间内的任意地址。<br>地址空间大小：1MB<br>程序寻址： cs:ip –&gt; cs*16 + ip</p>
+<h3 id="保护模式"><a href="#保护模式" class="headerlink" title="保护模式"></a>保护模式</h3><p>保护模式下程序在寻址的时候增加了权限控制。该模式下段基地址保存在GDT中，段寄存器中保存的是selector(即GDT的索引)。GDT中不仅保存了段基址还保存了该段地址的一些权限控制信息。<br>地址空间：4GB<br>寻址方式：cs:ip –&gt; GDT[cs].base *16 + ip</p>
+<h3 id="实模式–-gt-保护模式"><a href="#实模式–-gt-保护模式" class="headerlink" title="实模式–&gt;保护模式"></a>实模式–&gt;保护模式</h3><p>从实模式进入保护模式主要有两步设置：</p>
+<h4 id="使能A20"><a href="#使能A20" class="headerlink" title="使能A20"></a>使能A20</h4><p>实模式的寻址空间是1MB，地址总线A20位是unenable的，在进入保护模式前要先enable A20</p>
+<h4 id="开启分段机制"><a href="#开启分段机制" class="headerlink" title="开启分段机制"></a>开启分段机制</h4><p><img src="/2018/12/22/lab1-系统启动/segment_translation.png" alt="分段机制"></p>
+<h3 id="load-kernel"><a href="#load-kernel" class="headerlink" title="load kernel"></a>load kernel</h3><p>bootloader就像程序装载器那样，将elf格式的kernel(可执行)文件加载到内存。<br>elf(excutable and linkable format)是一种二进制文件格式，编译后的文件按照这种约定的格式组织信息，那么加载器就可以根据约定来解析并加载信息。对于可执行文件其中主要包括elf头，程序头表，节头表和各个section。<br>可以使用 <code>objdump -x object_file</code> 命令查看elf文件信息  </p>
+<p><img src="/2018/12/22/lab1-系统启动/kernel_elf.png" alt="elf文件"></p>
+<h4 id="section"><a href="#section" class="headerlink" title="section"></a>section</h4><p>section是可以理解为代码或数据段，其中主要包括:</p>
+<ul>
+<li>.text 程序段</li>
+<li>.rodata 只读数据段</li>
+<li>.data 数据段</li>
+<li>.bss     未初始化数据段</li>
+<li>.stab 符号表</li>
+<li>.stabstr 字符串表</li>
+</ul>
+<h4 id="program-segment"><a href="#program-segment" class="headerlink" title="program segment"></a>program segment</h4><p>一个程序段包含多个section，在程序加载时是以section为单位。程序头包含的主要信息如下：</p>
+<ul>
+<li>offset 该程序段在elf文件的偏移地址</li>
+<li>vaddr 程序希望运行的地址，链接地址</li>
+<li>paddr 程序希望存放的地址，装载地址</li>
+<li>filesz 该程序段在elf文件的大小</li>
+<li>memsz 该程序段在内存中的大小(memsz &gt;= filesz, 因为.bss节不占elf文件空间，但占内存空间)  </li>
+</ul>
+<p>链接地址可以理解为从程序代码中看到的地址，是在“分页机制”转换之前地址<br>装载地址可以理解为程序的物理地址，是经过“分页机制”转换后的地址</p>
+<h2 id="kernel"><a href="#kernel" class="headerlink" title="kernel"></a>kernel</h2><h3 id="物理地址空间"><a href="#物理地址空间" class="headerlink" title="物理地址空间"></a>物理地址空间</h3><p><img src="/2018/12/22/lab1-系统启动/phaddr.png" alt="物理地址空间"></p>
+<h3 id="函数调用-amp-stack"><a href="#函数调用-amp-stack" class="headerlink" title="函数调用&amp;stack"></a>函数调用&amp;stack</h3><h2 id="待解问题"><a href="#待解问题" class="headerlink" title="待解问题"></a>待解问题</h2><ul>
+<li>kernel的stdio实现</li>
+<li>.stab和.stabstr节的使用</li>
+</ul>
+
+          
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope="" itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/12/10/hexo笔记/">
+
+    <span hidden itemprop="author" itemscope="" itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="lip">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope="" itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="lip">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/12/10/hexo笔记/" itemprop="url">hexo笔记</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-12-10T21:53:23+08:00">
+                2018-12-10
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          <p>该文章记录常用的hexo命令，方便快速查找<br></p>
+          <!--noindex-->
+          <div class="post-button text-center">
+            <a class="btn" href="/2018/12/10/hexo笔记/#more" rel="contents">
+              阅读全文 &raquo;
+            </a>
+          </div>
+          <!--/noindex-->
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope="" itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2018/12/08/gitpage-hexo建站/">
 
     <span hidden itemprop="author" itemscope="" itemtype="http://schema.org/Person">
@@ -299,7 +583,7 @@
 
       
         
-          <p>本文记录该网站的建立过程，主要记录一些原理性的内容，建站的具体步骤在很多网站上都有详细介绍，这里不再重复，在最后会给几个参考的网站。<br>
+          <p>本文记录该网站的建立过程，主要记录一些原理性的内容，建站的具体步骤在很多网站上都有详细介绍，这里不再重复，在最后会给几个参考的网站。<br></p>
           <!--noindex-->
           <div class="post-button text-center">
             <a class="btn" href="/2018/12/08/gitpage-hexo建站/#more" rel="contents">
@@ -309,7 +593,7 @@
           <!--/noindex-->
         
       
-    </p></div>
+    </div>
     
     
     
@@ -423,10 +707,14 @@
 
       
         
-          
-            <p>我很喜欢记笔记，但是之前都是写在笔记本上面，查找起来比较困难。所以就建立这么一个博客，主要功能是线上笔记，当然也希望通过这个博客与别人交流学习。现在该博客还比较简单，还有许多功能会在后学的学习中完善。</p>
-
-          
+          <p>我很喜欢记笔记，但是之前都是写在笔记本上面，查找起来比较困难。所以就建立这么一个博客，主要功能是线上笔记，当然也希望通过这个博客与别人交流学习。现在该博客还比较简单，还有许多功能会在后学的学习中完善。</p>
+          <!--noindex-->
+          <div class="post-button text-center">
+            <a class="btn" href="/2018/12/08/about/#more" rel="contents">
+              阅读全文 &raquo;
+            </a>
+          </div>
+          <!--/noindex-->
         
       
     </div>
@@ -634,7 +922,7 @@
               
                 <a href="/archives/">
               
-                  <span class="site-state-item-count">3</span>
+                  <span class="site-state-item-count">5</span>
                   <span class="site-state-item-name">日志</span>
                 </a>
               </div>
