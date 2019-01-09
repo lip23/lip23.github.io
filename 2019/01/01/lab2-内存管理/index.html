@@ -79,17 +79,21 @@
 
 
 
-<meta name="description" content="os的memory management主要包括两大功能：allocator &amp;amp; maps。 allocatorallocator负责管理物理内存。 mapsmaps负责将va映射到ph。">
+<meta name="description" content="os的memory management主要包括两大功能：allocator &amp;amp; maps。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="lab2-内存管理">
 <meta property="og:url" content="http://yoursite.com/2019/01/01/lab2-内存管理/index.html">
 <meta property="og:site_name" content="lip">
-<meta property="og:description" content="os的memory management主要包括两大功能：allocator &amp;amp; maps。 allocatorallocator负责管理物理内存。 mapsmaps负责将va映射到ph。">
+<meta property="og:description" content="os的memory management主要包括两大功能：allocator &amp;amp; maps。">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:updated_time" content="2019-01-01T15:24:57.014Z">
+<meta property="og:image" content="http://yoursite.com/2019/01/01/lab2-内存管理/lab2_pa.jpeg">
+<meta property="og:image" content="http://yoursite.com/2019/01/01/lab2-内存管理/lab2_mmu.png">
+<meta property="og:image" content="http://yoursite.com/2019/01/01/lab2-内存管理/lab2_va.png">
+<meta property="og:updated_time" content="2019-01-09T15:51:40.644Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="lab2-内存管理">
-<meta name="twitter:description" content="os的memory management主要包括两大功能：allocator &amp;amp; maps。 allocatorallocator负责管理物理内存。 mapsmaps负责将va映射到ph。">
+<meta name="twitter:description" content="os的memory management主要包括两大功能：allocator &amp;amp; maps。">
+<meta name="twitter:image" content="http://yoursite.com/2019/01/01/lab2-内存管理/lab2_pa.jpeg">
 
 
 
@@ -299,9 +303,20 @@
       
 
       
-        <p>os的memory management主要包括两大功能：allocator &amp; maps。</p>
-<h1 id="allocator"><a href="#allocator" class="headerlink" title="allocator"></a>allocator</h1><p>allocator负责管理物理内存。</p>
+        <p>os的memory management主要包括两大功能：allocator &amp; maps。 <a id="more"></a></p>
+<h1 id="allocator"><a href="#allocator" class="headerlink" title="allocator"></a>allocator</h1><p>allocator负责管理物理内存。记录物理内存的使用情况，实现物理内存的alloc和free。</p>
+<h3 id="物理内存分布"><a href="#物理内存分布" class="headerlink" title="物理内存分布"></a>物理内存分布</h3><p>在进入kernel后，allocator工作之前，物理内存的使用情况如下：<br>物理内存主要被kernel，bios和bootloader程序占用。其中bootloader程序已经不再需要，所以这部分内存可以被回收。bios所占用内存中可能有一些数据后续会用到，此外从0xA0000～0xF0000的内存为IO预留。所以当前空闲的物理内存被分为两大块。</p>
+<p><img src="/2019/01/01/lab2-内存管理/lab2_pa.jpeg" alt="pa"></p>
+<h3 id="物理内存管理"><a href="#物理内存管理" class="headerlink" title="物理内存管理"></a>物理内存管理</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">struct PageInfo &#123;</span><br><span class="line">  struct PageInfo* pp_link;  //  指向下一个空闲页面</span><br><span class="line">  uint16_t pp_ref;  // 记录该页面被使用的次数</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line">PageInfo* pages;</span><br><span class="line">PageInfo* page_free_list;</span><br></pre></td></tr></table></figure>
+<p>allocator使用数组pages管理物理内存，该数组是物理页面的标记，数组中的每一项对应一个物理页面。pages[i]对应物理页[4k <em> i, 4k </em> (i+1)]。<code>page_free_list</code>是空闲页面链表，用来将所有的空闲页面串起来，这样alloc和free页面的时间复杂度都是O(1)。allocator会先调用<code>page_init</code>函数来完成pages和<code>page_free_list</code>的初始化，即根据物理页面的布局，设置pages[i]的<code>pp_link</code>和<code>pp_ref</code>，若page[i]为空闲页面，则<code>pp_link</code>指向下一个空闲页面，pp_ref则为0；否则<code>pp_link</code>指向null，<code>pp_ref</code>为1。同时将所有的空闲页面用<code>page_free_list</code>和<code>pp_link</code>串起来。</p>
 <h1 id="maps"><a href="#maps" class="headerlink" title="maps"></a>maps</h1><p>maps负责将va映射到ph。</p>
+<h3 id="如何寻址"><a href="#如何寻址" class="headerlink" title="如何寻址"></a>如何寻址</h3><p>首先介绍下开启分页机制后如何寻址，即如何完成va到pa的转化.<br>开启分页机制（cr0寄存器控制）后，访问某个地址va时，x86硬件会将va通过mmu转换成pa，然后访问pa，该过程对kernel透明。kernel只要建立好转化用的页表，然后将页表的物理地址存到cr3寄存器。<br>mmu在工作时首先取va的高10位作为index在一级页表中查找页表项（即图中的PPN），一级页表的首地址保存在cr3中。一级页表的PPN中保存有二级页表的首地址和二级页表的控制信息。接下来，mmu再用va的中间10位作为index查找二级页表的PPN。二级页表的PPN中保存有物理页面的首地址和控制信息。最后，mmu在用va的最低12位作为offset，在物理页面中定位到pa。注意，页表中保存的地址都是物理地址，因为mmu在将va映射到pa时要查找页表，若页表中保存的是虚拟地址，则会出现无限循环。 </p>
+<p><img src="/2019/01/01/lab2-内存管理/lab2_mmu.png" alt="mmu"></p>
+<h3 id="如何建立页表"><a href="#如何建立页表" class="headerlink" title="如何建立页表"></a>如何建立页表</h3><p>如上文所述，kernel只要负责建立好页面，va到pa的转换对kernel透明，由mmu负责。kernel使用了两级页表，在<code>mem_init</code>函数中会初始化页表。建立过程的和mmu工作的过程非常相似，<code>boot_region_map</code>接口会接受va、pa和pgdir，pgdir就是一级页表的首地址。先根据va查找pgdir，若能查到二级页表则继续查找二级页表，若差不多则申请一个页面作为二级页表。然后在二级页表的页表项中填入pa。</p>
+<h3 id="虚拟地址空间"><a href="#虚拟地址空间" class="headerlink" title="虚拟地址空间"></a>虚拟地址空间</h3><p>物理地址空间到虚拟地址空间的映射如下</p>
+<p><img src="/2019/01/01/lab2-内存管理/lab2_va.png" alt="va"></p>
+<h1 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h1><p>在kernel中的代码引入va和pa后很容易因为混乱，分不清要用va还是pa。其实可以这么理解，在开启分页机制后kernel使用地址都是va，因为所有的地址都要经过mmu转换。页表中保存的地址应该是pa，因为页表不是给kernel用的，是mmu用的。</p>
+<h3 id="存在问题"><a href="#存在问题" class="headerlink" title="存在问题"></a>存在问题</h3><p>当前的内存管理之涉及内存的静态分配，堆空间的分配还不清楚。</p>
 
       
     </div>
@@ -461,7 +476,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#allocator"><span class="nav-number">1.</span> <span class="nav-text">allocator</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#maps"><span class="nav-number">2.</span> <span class="nav-text">maps</span></a></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#allocator"><span class="nav-number">1.</span> <span class="nav-text">allocator</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#物理内存分布"><span class="nav-number">1.0.1.</span> <span class="nav-text">物理内存分布</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#物理内存管理"><span class="nav-number">1.0.2.</span> <span class="nav-text">物理内存管理</span></a></li></ol></li></ol><li class="nav-item nav-level-1"><a class="nav-link" href="#maps"><span class="nav-number">2.</span> <span class="nav-text">maps</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#如何寻址"><span class="nav-number">2.0.1.</span> <span class="nav-text">如何寻址</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#如何建立页表"><span class="nav-number">2.0.2.</span> <span class="nav-text">如何建立页表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#虚拟地址空间"><span class="nav-number">2.0.3.</span> <span class="nav-text">虚拟地址空间</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#小结"><span class="nav-number">3.</span> <span class="nav-text">小结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#存在问题"><span class="nav-number">3.0.1.</span> <span class="nav-text">存在问题</span></a></li></ol></li></div>
             
 
           </div>
